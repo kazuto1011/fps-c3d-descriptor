@@ -16,49 +16,48 @@ import theano
 import numpy as np
 import cv2
 
-# Build model
-net = c3d.build_model()
-
-# Set the weights (takes some time)
-c3d.set_weights(net['prob'],'c3d_model.pkl')
-
-# Sample clip
-snip=np.load('example_snip.npy')
-caffe_snip=c3d.get_snips(snip,image_mean=np.load('snipplet_mean.npy'),start=0, with_mirrored=False)
-
-prediction = lasagne.layers.get_output(net['prob'], deterministic=True)
-pred_fn = theano.function([net['input'].input_var], prediction, allow_input_downcast = True);
-
 class Sport1MClassifier():
     def __init__(self):
+        self.result = ["",""]
         self.cap = cv2.VideoCapture(0)
-        self.clip = np.ndarray((1,3,16,112,112),dtype=float)
         cv2.namedWindow("camera")
+
+        # Build model
+        self.net = c3d.build_model()
+        c3d.set_weights(self.net['prob'],'c3d_model.pkl')
+
+        self.prediction = lasagne.layers.get_output(self.net['prob'], deterministic=True)
+        self.pred_fn = theano.function([self.net['input'].input_var], self.prediction, allow_input_downcast=True);
+
+        # Load labels
+        with open('labels.txt','r') as f:
+            self.cls2label = dict(enumerate([name.rstrip('\n') for name in f]))
 
     def run(self):
         while True:
-            self.retrieve_clips()
-            self.classfy()
+            clip = self.retrieve_clips()
+            self.classfy(clip)
 
     def retrieve_clips(self):
-        clip = []
+        frames = []
         for _ in range(16):
             ret, frame = self.cap.read()
+            frames.append(cv2.resize(frame, (112,112)))
+            cv2.putText(frame, self.result[0], (10,30), cv2.FONT_HERSHEY_COMPLEX, 1.0, (0,0,255), 2)
+            cv2.putText(frame, self.result[1], (10,70), cv2.FONT_HERSHEY_COMPLEX, 1.0, (0,0,255), 2)
             cv2.imshow("camera", frame)
             cv2.waitKey(10)
-            frame = cv2.resize(frame, (112,112))
-            clip.append(frame)
-        self.clip = np.asarray([clip]).transpose(0,4,1,2,3)
+        return np.asarray([frames]).transpose(0,4,1,2,3)
 
-    def classfy(self):
-        probabilities=pred_fn(self.clip).mean(axis=0)
-        # Load labels
-        with open('labels.txt','r') as f:
-            class2label=dict(enumerate([name.rstrip('\n') for name in f]))
-        # Show the post probable ones
+    def classfy(self, clip):
+        self.cls_score = self.pred_fn(clip).mean(axis=0)
+        
+        top_id = (-self.cls_score).argsort()[0:10]
+        self.result = self.cls2label[top_id[0]], "%.2f%%"%(100*self.cls_score[top_id[0]])
+        
         print('Top 10 class probabilities:')
-        for class_id in (-probabilities).argsort()[0:10]:
-            print('%20s: %.2f%%' % (class2label[class_id],100*probabilities[class_id]))
+        for cls_id in top_id:
+            print('%20s: %.2f%%' % (self.cls2label[cls_id],100*self.cls_score[cls_id]))
 
 classifier = Sport1MClassifier()
 classifier.run()

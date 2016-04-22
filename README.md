@@ -1,2 +1,3 @@
 # fps-c3d-descriptor
-backup
+* facebook - original implementation
+* lasagne - python wrapper for c3d
